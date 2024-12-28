@@ -3,10 +3,11 @@ MACD_FAST = 12  # Быстрая линия
 MACD_SLOW = 26  # Медленная линия
 MACD_SIGNAL = 9  # Сигнальная линия
 
-# Депозит для покупки
-DEPOSIT = 100  # Сумма депозита в USDT
+# Настройки использования депозита
+USE_TOTAL_BALANCE = False  # True - использовать весь баланс USDT, False - фиксированный депозит
+DEPOSIT = 100  # Фиксированный депозит в USDT (используется, если USE_TOTAL_BALANCE=False)
 
 # Настройки стратегии
 TRADE_SYMBOL = "BTCUSDT"  # Торговая пара
 KLINE_TIMEFRAME = "30"  # Таймфрейм
-
+KLINE_LIMIT = 200

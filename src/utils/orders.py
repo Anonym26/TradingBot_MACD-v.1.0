@@ -1,7 +1,7 @@
 import logging
 from decimal import Decimal, ROUND_DOWN
-from src.settings import DEPOSIT, MACD_FAST, MACD_SLOW, MACD_SIGNAL
-from src.handlers.bybit_handler import get_precision, get_asset_balance
+from src.settings import DEPOSIT, MACD_FAST, MACD_SLOW, MACD_SIGNAL, USE_TOTAL_BALANCE
+from src.handlers.bybit_handler import ByBitHandler
 from src.utils.calculations import calculate_macd
 
 # Константы состояний сигналов
@@ -11,53 +11,26 @@ SIGNAL_POSITION_OPEN = "Position open"
 
 class MACDStrategy:
     def __init__(self, session, symbol):
-        self.session = session
+        self.handler = ByBitHandler()
         self.symbol = symbol
         self.deposit = Decimal(DEPOSIT)
         self.last_signal = None  # Состояние последнего сигнала
         self.position_open = False  # Флаг состояния позиции (открыта или нет)
 
-    def market_order(self, side, close_price):
+    async def market_order(self, side, close_price, use_total_balance=USE_TOTAL_BALANCE):
         """
-        Размещение рыночного ордера с учётом минимальных требований ByBit.
+        Размещение рыночного ордера через ByBitHandler.
         :param side: Сторона сделки ("Buy" или "Sell").
-        :param close_price: Список цен закрытия.
+        :param close_price: Текущая цена актива.
+        :param use_total_balance: Использовать весь баланс депозита для покупки.
         :return: Ответ API или None при ошибке.
         """
-        try:
-            # Получаем параметры точности и минимальных значений для символа
-            base_precision, min_order_qty, min_order_amt = get_precision(self.symbol, self.session)
+        return await self.handler.place_market_order(self.symbol,
+                                                     side,
+                                                     close_price,
+                                                     use_total_balance=use_total_balance)
 
-            if side == "Buy":
-                qty = self.deposit
-                if qty < min_order_amt:
-                    logging.warning(f"Сумма покупки ({qty}) меньше минимально допустимой {min_order_amt}.")
-                    return None
-            elif side == "Sell":
-                base_asset = self.symbol.split('USDT')[0]
-                qty = Decimal(get_asset_balance(self.session, base_asset))
-                if qty < min_order_qty:
-                    logging.warning(f"Количество для продажи ({qty}) меньше минимально допустимого {min_order_qty}.")
-                    return None
-
-            qty = qty.quantize(base_precision, rounding=ROUND_DOWN)
-            logging.info(f"Qty после округления: {qty}")
-
-            response = self.session.place_order(
-                category="spot",
-                symbol=self.symbol,
-                side=side,
-                orderType="Market",
-                qty=str(qty),
-                timeInForce="GTC",
-            )
-            logging.info(f"Ордер успешно размещён: {response}")
-            return response
-        except Exception as e:
-            logging.error(f"Ошибка при размещении ордера: {e}")
-            return None
-
-    def process_macd(self, close_prices):
+    async def process_macd(self, close_prices):
         """
         Обработка MACD для принятия торговых решений.
         :param close_prices: Список цен закрытия.
@@ -76,7 +49,7 @@ class MACDStrategy:
 
             elif self.last_signal == SIGNAL_WAIT_UPWARD_CROSS and macd[-1] > macd_signal_line[-1]:
                 logging.info("Пересечение снизу вверх. Открываем покупку.")
-                result = self.market_order("Buy", close_prices)
+                result = await self.market_order("Buy", close_prices[-1])
                 if result is not None:
                     logging.info("Позиция открыта.")
                     self.position_open = True
@@ -85,7 +58,7 @@ class MACDStrategy:
         if self.position_open:
             if macd[-1] < macd_signal_line[-1]:
                 logging.info("MACD пересёк сигнальную линию сверху вниз. Закрываем позицию.")
-                result = self.market_order("Sell", close_prices)
+                result = await self.market_order("Sell", close_prices[-1])
                 if result is not None:
                     logging.info("Позиция успешно закрыта.")
                 else:

@@ -18,9 +18,9 @@ def market_order(session, symbol, side, close_price):
 
         if side == "Buy":
             # Количество для покупки фиксировано в USDT
-            qty = Decimal(deposit) / Decimal(close_price[-1])
-            if qty * Decimal(close_price[-1]) < min_order_amt:
-                logging.warning(f"Сумма покупки ({qty * Decimal(close_price[-1])}) меньше минимально допустимой {min_order_amt}.")
+            qty = Decimal(deposit)
+            if qty < min_order_amt:
+                logging.warning(f"Сумма покупки ({qty}) меньше минимально допустимой {min_order_amt}.")
                 return None
         elif side == "Sell":
             # Получаем баланс базового актива

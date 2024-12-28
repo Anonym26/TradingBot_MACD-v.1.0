@@ -29,6 +29,7 @@ session_name.session
 *.temp
 *.bak
 *.swp
+.tests/
 
 # PyCharm
 .idea/

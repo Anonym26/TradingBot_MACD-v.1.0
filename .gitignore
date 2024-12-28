@@ -29,6 +29,8 @@ session_name.session
 *.temp
 *.bak
 *.swp
+
+# Тестирование модулей
 .tests/
 
 # PyCharm

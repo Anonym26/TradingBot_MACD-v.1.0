@@ -62,7 +62,7 @@ async def run():
                 else:
                     last_signal = "Sell"
 
-            await asyncio.sleep(60)  # Ждем 1 минуту перед следующим анализом
+            await asyncio.sleep(60*int(kline_time))  # Ждем 30 минут перед следующим анализом
 
         except Exception as e:
             logging.error(f"Ошибка в основном цикле: {e}")

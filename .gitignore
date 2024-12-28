@@ -30,9 +30,6 @@ session_name.session
 *.bak
 *.swp
 
-# Тестирование модулей
-.tests/
-
 # PyCharm
 .idea/
 
@@ -57,3 +54,6 @@ __pycache__/
 *.coverage
 *.pytest_cache/
 .tox/
+
+# Тестирование модулей
+/tests/

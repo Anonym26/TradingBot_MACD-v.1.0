@@ -9,5 +9,8 @@ DEPOSIT = 100  # Фиксированный депозит в USDT (исполь
 
 # Настройки стратегии
 TRADE_SYMBOL = "BTCUSDT"  # Торговая пара
-KLINE_TIMEFRAME = "30"  # Таймфрейм
+KLINE_TIMEFRAME = "5"  # Таймфрейм
 KLINE_LIMIT = 200
+
+# Настройки анализа
+ANALYZE_PREVIOUS_CANDLE = False  # Включить анализ последней закрытой свечи при запуске бота

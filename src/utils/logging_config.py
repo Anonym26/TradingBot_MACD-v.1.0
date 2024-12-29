@@ -1,14 +1,23 @@
+"""
+Этот модуль содержит функции для настройки логирования в проекте.
+Поддерживает запись логов в файл с ротацией, а также цветное логирование в консоль.
+"""
+
+
 import logging
 from logging.handlers import RotatingFileHandler
 from colorlog import ColoredFormatter
+from src.settings import LOGGING_SETTINGS
 
-def setup_logger(log_file="app.log", max_bytes=10 * 1024 * 1024, backup_count=5):
+def setup_logger():
     """
-    Настройка логирования для проекта.
-    :param log_file: Имя файла для сохранения логов.
-    :param max_bytes: Максимальный размер файла логов (в байтах) перед ротацией.
-    :param backup_count: Количество резервных копий логов.
+    Настройка логирования для проекта с использованием параметров из settings.py.
     """
+    log_file = LOGGING_SETTINGS["LOG_FILE"]
+    max_bytes = LOGGING_SETTINGS["MAX_BYTES"]
+    backup_count = LOGGING_SETTINGS["BACKUP_COUNT"]
+    log_level = getattr(logging, LOGGING_SETTINGS["LOG_LEVEL"].upper(), logging.INFO)
+
     # Настройка формата для логов в файле
     file_formatter = logging.Formatter(
         "%(asctime)s - %(levelname)s - %(message)s"
@@ -37,7 +46,7 @@ def setup_logger(log_file="app.log", max_bytes=10 * 1024 * 1024, backup_count=5)
 
     # Настройка основного логгера
     logging.basicConfig(
-        level=logging.INFO,  # Уровень логирования
+        level=log_level,  # Уровень логирования
         handlers=[file_handler, console_handler]  # Логи в файл и консоль
     )
 

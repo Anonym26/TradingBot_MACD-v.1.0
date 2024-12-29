@@ -42,7 +42,9 @@ class ByBitHandler:
                 symbol=symbol
             )
             if response["retCode"] != 0:
-                raise ValueError(f"Ошибка получения информации об инструменте {symbol}: {response['retMsg']}")
+                raise ValueError(
+                    f"Ошибка получения информации об инструменте {symbol}: {response['retMsg']}"
+                )
 
             asset_info = response["result"]["list"][0]
             base_precision = Decimal(
@@ -53,10 +55,14 @@ class ByBitHandler:
 
             return base_precision, min_order_qty, min_order_amt
         except KeyError as key_error:
-            logging.error("Ошибка при извлечении данных точности для символа %s: %s", symbol, key_error)
+            logging.error(
+                "Ошибка при извлечении данных точности для символа %s: %s", symbol, key_error
+            )
             raise
         except ValueError as value_error:
-            logging.error("Ошибка при обработке данных инструмента %s: %s", symbol, value_error)
+            logging.error(
+                "Ошибка при обработке данных инструмента %s: %s", symbol, value_error
+            )
             raise
 
     async def get_asset_balance(self, asset):
@@ -103,11 +109,11 @@ class ByBitHandler:
                     "quantity": balance,
                     "side": "Buy"  # Учитываем, что наличие актива указывает на покупку
                 }
-            else:
-                logging.info("Нет открытой позиции для %s.", base_asset)
-                return {"position_open": False}
-        except Exception as e:
-            logging.error("Ошибка при проверке открытой позиции: %s", e)
+
+            logging.info("Нет открытой позиции для %s.", base_asset)
+            return {"position_open": False}
+        except Exception as exc:
+            logging.error("Ошибка при проверке открытой позиции: %s", exc)
             return {"position_open": False}
 
     async def place_market_order(self, symbol, side):
@@ -127,7 +133,9 @@ class ByBitHandler:
                 qty = Decimal(await self.get_asset_balance(symbol.split("USDT")[0]))
 
             if qty < min_order_amt:
-                logging.warning("Недостаточно средств для размещения ордера. Требуется: %.8f", min_order_amt)
+                logging.warning(
+                    "Недостаточно средств для размещения ордера. Требуется: %.8f", min_order_amt
+                )
                 return None
 
             qty = qty.quantize(base_precision, rounding=ROUND_DOWN)
@@ -145,6 +153,6 @@ class ByBitHandler:
                 return None
 
             return response.get("result", {})
-        except Exception as e:
-            logging.error("Ошибка при размещении ордера: %s", e)
+        except Exception as exc:
+            logging.error("Ошибка при размещении ордера: %s", exc)
             return None

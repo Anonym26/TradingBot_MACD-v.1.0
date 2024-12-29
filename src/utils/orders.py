@@ -6,8 +6,8 @@
 
 import logging
 from decimal import Decimal
+
 from src.settings import DEPOSIT_SETTINGS, MACD_SETTINGS
-from src.handlers.bybit_handler import ByBitHandler
 from src.utils.calculations import calculate_macd
 
 # Константы состояний сигналов
@@ -41,7 +41,7 @@ class MACDStrategy:
         """
         Синхронизация состояния с биржей.
 
-        Проверяет наличие активов на балансе и обновляет состояние в соответствии с результатом.
+        Проверяет наличие активов на балансе, и обновляет состояние в соответствии с результатом.
         """
         try:
             asset = self.symbol.split("USDT")[0]

@@ -16,7 +16,6 @@ load_dotenv()
 BYBIT_API_KEY_TEST = os.getenv("BYBIT_API_KEY_TEST")
 BYBIT_API_SECRET_TEST = os.getenv("BYBIT_API_SECRET_TEST")
 
-
 class ByBitHandler:
     """
     Класс для работы с API ByBit: покупка и продажа активов.
@@ -43,9 +42,7 @@ class ByBitHandler:
                 symbol=symbol
             )
             if response["retCode"] != 0:
-                raise ValueError(
-                    f"Ошибка получения информации об инструменте {symbol}: {response['retMsg']}"
-                )
+                raise ValueError(f"Ошибка получения информации об инструменте {symbol}: {response['retMsg']}")
 
             asset_info = response["result"]["list"][0]
             base_precision = Decimal(
@@ -82,14 +79,40 @@ class ByBitHandler:
                     return balance
 
             logging.warning("Актива %s нет в портфеле.", asset)
-            return 0
+            return 0.0
         except ValueError as value_error:
             logging.error("Ошибка при получении баланса %s: %s", asset, value_error)
             raise
 
+    async def check_open_position(self, symbol):
+        """
+        Проверка открытой позиции по наличию баланса актива, превышающего минимальный размер ордера.
+
+        :param symbol: Торговая пара (например, BTCUSDT).
+        :return: Словарь с информацией о позиции.
+        """
+        try:
+            base_asset = symbol.split("USDT")[0]
+            balance = await self.get_asset_balance(base_asset)
+            _, min_order_qty, _ = await self.get_precision(symbol)
+
+            if balance > min_order_qty:
+                logging.info("Обнаружена открытая позиция для %s: %.8f", base_asset, balance)
+                return {
+                    "position_open": True,
+                    "quantity": balance,
+                    "side": "Buy"  # Учитываем, что наличие актива указывает на покупку
+                }
+            else:
+                logging.info("Нет открытой позиции для %s.", base_asset)
+                return {"position_open": False}
+        except Exception as e:
+            logging.error("Ошибка при проверке открытой позиции: %s", e)
+            return {"position_open": False}
+
     async def place_market_order(self, symbol, side):
         """
-        Размещение рыночного ордера с учётом минимальных требований ByBit.
+        Размещение рыночного ордера.
 
         :param symbol: Торговая пара (например, BTCUSDT).
         :param side: Сторона сделки ("Buy" или "Sell").
@@ -98,36 +121,16 @@ class ByBitHandler:
         try:
             base_precision, min_order_qty, min_order_amt = await self.get_precision(symbol)
 
-            if side == "Buy":
-                if self.deposit_settings["USE_TOTAL_BALANCE"]:
-                    usdt_balance = Decimal(await self.get_asset_balance("USDT"))
-                    qty = usdt_balance
-                    if qty < min_order_amt:
-                        logging.warning(
-                            "Баланс USDT (%.8f) меньше минимально допустимой суммы %.8f.", qty, min_order_amt
-                        )
-                        return None
-                else:
-                    qty = Decimal(self.deposit_settings["DEPOSIT"])
-                    if qty < min_order_amt:
-                        logging.warning(
-                            "Сумма покупки (%.8f) меньше минимально допустимой %.8f.", qty, min_order_amt
-                        )
-                        return None
+            # Расчет количества для ордера
+            qty = Decimal(self.deposit_settings["DEPOSIT"])
+            if side == "Sell":
+                qty = Decimal(await self.get_asset_balance(symbol.split("USDT")[0]))
 
-            elif side == "Sell":
-                base_asset = symbol.split("USDT")[0]
-                qty = Decimal(await self.get_asset_balance(base_asset))
-                if qty < min_order_qty:
-                    logging.warning(
-                        "Количество для продажи (%.8f) меньше минимально допустимого %.8f.", qty, min_order_qty
-                    )
-                    return None
-            else:
-                raise ValueError(f"Некорректная сторона сделки: {side}")
+            if qty < min_order_amt:
+                logging.warning("Недостаточно средств для размещения ордера. Требуется: %.8f", min_order_amt)
+                return None
 
             qty = qty.quantize(base_precision, rounding=ROUND_DOWN)
-            logging.info("Qty после округления: %.8f", qty)
 
             response = self.session.place_order(
                 category="spot",
@@ -137,9 +140,11 @@ class ByBitHandler:
                 qty=str(qty),
                 timeInForce="GTC",
             )
-            logging.info("Ордер успешно размещён: %s", response)
-            return response
-        except ValueError as value_error:
-            logging.error("Ошибка в параметрах ордера: %s", value_error)
-        except KeyError as key_error:
-            logging.error("Ошибка данных при размещении ордера: %s", key_error)
+            if response["retCode"] != 0:
+                logging.error("Ошибка размещения ордера: %s", response["retMsg"])
+                return None
+
+            return response.get("result", {})
+        except Exception as e:
+            logging.error("Ошибка при размещении ордера: %s", e)
+            return None

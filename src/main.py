@@ -13,6 +13,7 @@ from src.handlers.bybit_handler import ByBitHandler
 from src.settings import STRATEGY_SETTINGS, ANALYSIS_SETTINGS
 from src.utils.logging_config import setup_logger
 from src.utils.orders import MACDStrategy
+from src.utils.json_state import load_state, save_state
 
 # Загрузка переменных окружения
 load_dotenv()
@@ -56,35 +57,49 @@ async def run():
     """
     Основной цикл бота для анализа данных и выполнения сделок.
     """
-    strategy = MACDStrategy(symbol=STRATEGY_SETTINGS["TRADE_SYMBOL"])
+    # Загружаем текущее состояние
+    state = load_state()
+    strategy = MACDStrategy(
+        symbol=STRATEGY_SETTINGS["TRADE_SYMBOL"],
+        handler=bybit_handler,
+        state=state
+    )
 
     try:
+        # Синхронизация позиции с биржей
+        await strategy.sync_position()
+
+        if strategy.position_open:
+            logging.info("Обнаружена открытая позиция: %s", strategy.state)
+        else:
+            logging.info("Открытых позиций нет. Ожидание нового сигнала.")
+
         # Если включен анализ последней закрытой свечи, анализируем ее сразу после запуска
         if ANALYSIS_SETTINGS["ANALYZE_PREVIOUS_CANDLE"]:
             logging.info("Анализ последней закрытой свечи...")
-            resource = bybit_handler.session.get_kline(  # Синхронный вызов
+            resource = bybit_handler.session.get_kline(
                 category="spot",
                 symbol=STRATEGY_SETTINGS["TRADE_SYMBOL"],
                 interval=STRATEGY_SETTINGS["KLINE_TIMEFRAME"],
-                limit=STRATEGY_SETTINGS["KLINE_LIMIT"],
+                limit=STRATEGY_SETTINGS["KLINE_LIMIT"]
             )
             klines = resource.get("result", {}).get("list", [])
             klines = sorted(klines, key=lambda x: int(x[0]))
             close_price = [float(candle[4]) for candle in klines]
             await strategy.process_macd(close_prices=close_price)
 
-        # Ожидание времени до закрытия текущей свечи
-        sleep_time = await calculate_sleep_time(STRATEGY_SETTINGS["KLINE_TIMEFRAME"])
-        await asyncio.sleep(sleep_time + 2)  # Добавляем задержку в 2 секунды
-
         while True:
             try:
+                # Ожидаем до закрытия текущей свечи
+                sleep_time = await calculate_sleep_time(STRATEGY_SETTINGS["KLINE_TIMEFRAME"])
+                await asyncio.sleep(sleep_time + 2)  # Дополнительная задержка для гарантии закрытия свечи
+
                 # Получаем свечные данные
-                resource = bybit_handler.session.get_kline(  # Синхронный вызов
+                resource = bybit_handler.session.get_kline(
                     category="spot",
                     symbol=STRATEGY_SETTINGS["TRADE_SYMBOL"],
                     interval=STRATEGY_SETTINGS["KLINE_TIMEFRAME"],
-                    limit=STRATEGY_SETTINGS["KLINE_LIMIT"],
+                    limit=STRATEGY_SETTINGS["KLINE_LIMIT"]
                 )
                 klines = resource.get("result", {}).get("list", [])
                 klines = sorted(klines, key=lambda x: int(x[0]))
@@ -93,13 +108,14 @@ async def run():
                 # Обработка стратегии MACD
                 await strategy.process_macd(close_prices=close_price)
 
-                # Ожидаем следующий анализ через таймфрейм
-                await asyncio.sleep(60 * STRATEGY_SETTINGS["KLINE_TIMEFRAME"])
-            except KeyError as error:
+                # Сохранение текущего состояния
+                save_state(strategy.state)
+
+            except Exception as error:
                 logging.error("Ошибка в основном цикле: %s", error)
 
-    except ValueError as error:
-        logging.error("Ошибка при вычислении времени до закрытия свечи: %s", error)
+    except Exception as error:
+        logging.error("Ошибка при запуске бота: %s", error)
 
 
 if __name__ == "__main__":

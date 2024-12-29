@@ -21,13 +21,60 @@ class MACDStrategy:
     Класс для реализации стратегии на основе MACD.
     """
 
-    def __init__(self, symbol):
-        self.handler = ByBitHandler()
+    def __init__(self, symbol, handler, state):
+        """
+        Инициализация стратегии.
+
+        :param symbol: Торговая пара (например, BTCUSDT).
+        :param handler: Экземпляр ByBitHandler для работы с API ByBit.
+        :param state: Состояние бота, загруженное из JSON-файла.
+        """
+        self.handler = handler
         self.symbol = symbol
+        self.state = state
         self.deposit = Decimal(DEPOSIT_SETTINGS["DEPOSIT"])
         self.use_total_balance = DEPOSIT_SETTINGS["USE_TOTAL_BALANCE"]
-        self.last_signal = None  # Состояние последнего сигнала
-        self.position_open = False  # Флаг состояния позиции (открыта или нет)
+        self.last_signal = self.state.get("last_signal", None)
+        self.position_open = self.state.get("position_open", False)
+
+    async def sync_position(self):
+        """
+        Синхронизация состояния с биржей.
+
+        Проверяет наличие активов на балансе и обновляет состояние в соответствии с результатом.
+        """
+        try:
+            asset = self.symbol.split("USDT")[0]
+            balance = await self.handler.get_asset_balance(asset)
+            base_precision, min_order_qty, _ = await self.handler.get_precision(self.symbol)
+
+            if Decimal(balance) >= min_order_qty:
+                self.position_open = True
+                self.state.update({
+                    "position_open": True,
+                    "side": "Buy",
+                    "quantity": float(balance),
+                    "entry_price": self.state.get("entry_price", 0.0)  # Используем сохранённое значение
+                })
+                logging.info("Обнаружена открытая позиция на бирже. Состояние обновлено: %s", self.state)
+            else:
+                self.position_open = False
+                self.state.update({
+                    "position_open": False,
+                    "side": None,
+                    "quantity": 0.0,
+                    "entry_price": 0.0
+                })
+                logging.info("Открытых позиций на бирже нет. Состояние сброшено.")
+        except Exception as error:
+            logging.error("Ошибка при синхронизации позиции с биржей: %s", error)
+            self.position_open = False
+            self.state.update({
+                "position_open": False,
+                "side": None,
+                "quantity": 0.0,
+                "entry_price": 0.0
+            })
 
     async def market_order(self, side):
         """
@@ -71,6 +118,12 @@ class MACDStrategy:
                     logging.info("Позиция открыта.")
                     self.position_open = True
                     self.last_signal = SIGNAL_POSITION_OPEN
+                    self.state.update({
+                        "position_open": True,
+                        "side": "Buy",
+                        "quantity": result.get("quantity", 0.0),
+                        "entry_price": result.get("entry_price", 0.0)
+                    })
 
         if self.position_open:
             if macd[-1] < macd_signal_line[-1]:
@@ -78,7 +131,11 @@ class MACDStrategy:
                 result = await self.market_order("Sell")
                 if result is not None:
                     logging.info("Позиция успешно закрыта.")
-                else:
-                    logging.warning("Не удалось закрыть позицию.")
-                self.position_open = False
-                self.last_signal = SIGNAL_WAIT_UPWARD_CROSS
+                    self.position_open = False
+                    self.last_signal = SIGNAL_WAIT_UPWARD_CROSS
+                    self.state.update({
+                        "position_open": False,
+                        "side": None,
+                        "quantity": 0.0,
+                        "entry_price": 0.0
+                    })

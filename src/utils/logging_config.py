@@ -1,3 +1,8 @@
+"""
+Этот модуль содержит функции для настройки логирования в проекте.
+Поддерживает запись логов в файл с ротацией, а также цветное логирование в консоль.
+"""
+
 import logging
 from logging.handlers import RotatingFileHandler
 from colorlog import ColoredFormatter

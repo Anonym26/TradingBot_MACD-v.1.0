@@ -6,8 +6,10 @@
 import json
 import logging
 import os
+import shutil
 
 STATE_FILE = "state.json"
+BACKUP_FILE = "state_backup.json"
 
 def load_state():
     """
@@ -35,12 +37,11 @@ def load_state():
                 return {"position_open": False, "symbol": None, "side": None, "quantity": 0.0, "entry_price": 0.0}
     return {"position_open": False, "symbol": None, "side": None, "quantity": 0.0, "entry_price": 0.0}
 
-
 def save_state(state):
     """
     Сохраняет текущее состояние бота в JSON-файл.
 
-    Записывает переданное состояние в файл `state.json` в формате JSON с отступами для читаемости.
+    Перед записью создается резервная копия текущего состояния, если файл существует.
 
     :param state: Словарь с текущим состоянием бота. Формат:
         {
@@ -51,5 +52,16 @@ def save_state(state):
             "entry_price": float     # Цена открытия позиции
         }
     """
-    with open(STATE_FILE, "w") as file:
-        json.dump(state, file, indent=4)
+    if os.path.exists(STATE_FILE):
+        try:
+            shutil.copyfile(STATE_FILE, BACKUP_FILE)
+            logging.info("Резервная копия состояния сохранена в '%s'", BACKUP_FILE)
+        except IOError as error:
+            logging.error("Ошибка при создании резервной копии: %s", error, exc_info=True)
+
+    try:
+        with open(STATE_FILE, "w") as file:
+            json.dump(state, file, indent=4)
+            logging.info("Состояние успешно сохранено в '%s'", STATE_FILE)
+    except IOError as error:
+        logging.error("Ошибка при сохранении состояния: %s", error, exc_info=True)

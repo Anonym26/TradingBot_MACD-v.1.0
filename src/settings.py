@@ -21,6 +21,13 @@ DEPOSIT_SETTINGS = {
 if not DEPOSIT_SETTINGS["USE_TOTAL_BALANCE"] and DEPOSIT_SETTINGS["DEPOSIT"] <= 0:
     raise ValueError("Значение 'DEPOSIT' должно быть больше 0, если 'USE_TOTAL_BALANCE' отключен.")
 
+# Настройки управления рисками
+RISK_MANAGEMENT_SETTINGS = {
+    "TP_PERCENTAGE": 3.0,  # Процент тейк-профита
+    "SL_PERCENTAGE": 1.5,  # Процент стоп-лосса
+    "TRAILING_STOP_PERCENTAGE": 2.0  # Процент трейлинг-стопа
+}
+
 # Настройки стратегии
 STRATEGY_SETTINGS = {
     "TRADE_SYMBOL": "BTCUSDT",  # Торговая пара

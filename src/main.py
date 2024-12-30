@@ -58,7 +58,7 @@ async def run():
     Основной цикл бота для анализа данных и выполнения сделок.
     """
     # Загружаем текущее состояние
-    state = load_state()
+    state = await load_state()  # Асинхронный вызов состояния
     strategy = MACDStrategy(
         symbol=STRATEGY_SETTINGS["TRADE_SYMBOL"],
         handler=bybit_handler,
@@ -113,10 +113,11 @@ async def run():
                 await strategy.process_macd(close_prices=close_price)
 
                 # Сохранение текущего состояния
-                save_state(strategy.state)
+                await save_state(strategy.state)  # Асинхронное сохранение состояния
 
             except Exception as error:
                 logging.error("Ошибка в основном цикле: %s", error, exc_info=True)
+
 
     except Exception as error:
         logging.error("Ошибка при запуске бота: %s", error, exc_info=True)

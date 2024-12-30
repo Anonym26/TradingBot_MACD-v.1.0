@@ -6,8 +6,9 @@
 
 import logging
 from decimal import Decimal
-from src.settings import DEPOSIT_SETTINGS, MACD_SETTINGS
+from src.settings import DEPOSIT_SETTINGS, MACD_SETTINGS, RISK_MANAGEMENT_SETTINGS
 from src.utils.calculations import calculate_macd
+from src.utils.json_state import save_state
 
 # Константы состояний сигналов
 SIGNAL_WAIT_DOWNWARD_CROSS = "Wait for downward cross"
@@ -71,7 +72,10 @@ class MACDStrategy:
             "position_open": False,
             "side": None,
             "quantity": 0.0,
-            "entry_price": 0.0
+            "entry_price": 0.0,
+            "tp_price": 0.0,
+            "sl_price": 0.0,
+            "ts_price": 0.0
         })
 
     async def market_order(self, side):
@@ -113,32 +117,79 @@ class MACDStrategy:
         :param close_prices: Список цен закрытия.
         """
         macd, macd_signal_line = calculate_macd(close_prices)
+        logging.info("Начат анализ MACD...")
         logging.info("MACD: %.2f, Signal: %.2f", macd[-1], macd_signal_line[-1])
 
+        current_price = close_prices[-1]
+
         if self.should_buy(macd[-1], macd_signal_line[-1]):
-            logging.info("Пересечение снизу вверх. Открываем покупку.")
+            logging.info("MACD пересёк сигнальную линию снизу вверх. Подготовка к открытию позиции.")
             result = await self.market_order("Buy")
             if result is not None:
                 logging.info("Позиция открыта.")
+                entry_price = result.get("entry_price", current_price)
+                tp_price = entry_price * (1 + RISK_MANAGEMENT_SETTINGS["TP_PERCENTAGE"] / 100)
+                sl_price = entry_price * (1 - RISK_MANAGEMENT_SETTINGS["SL_PERCENTAGE"] / 100)
+                ts_price = sl_price
+
                 self.position_open = True
                 self.last_signal = SIGNAL_POSITION_OPEN
                 self.state.update({
                     "position_open": True,
                     "side": "Buy",
                     "quantity": result.get("quantity", 0.0),
-                    "entry_price": result.get("entry_price", 0.0)
+                    "entry_price": entry_price,
+                    "tp_price": tp_price,
+                    "sl_price": sl_price,
+                    "ts_price": ts_price
                 })
-        elif not self.position_open and macd[-1] > macd_signal_line[-1]:
-            logging.info("MACD выше сигнальной линии. Ждем пересечения сверху вниз для следующего сигнала.")
-        elif not self.position_open and macd[-1] <= macd_signal_line[-1]:
-            logging.info("MACD ниже сигнальной линии. Ждем пересечения снизу вверх.")
+                await save_state(self.state)
+                logging.info(
+                    "Позиция открыта: Цена входа %.2f, TP: %.2f, SL: %.2f, TS: %.2f",
+                    entry_price, tp_price, sl_price, ts_price
+                )
 
-        if self.should_sell(macd[-1], macd_signal_line[-1]):
-            logging.info("MACD пересёк сигнальную линию сверху вниз. Закрываем позицию.")
-            result = await self.market_order("Sell")
-            if result is not None:
-                logging.info("Позиция успешно закрыта.")
+        if self.position_open:
+            tp_price = self.state["tp_price"]
+            sl_price = self.state["sl_price"]
+            ts_price = self.state.get("ts_price", sl_price)
+        else:
+            tp_price = None
+            sl_price = None
+            ts_price = None
+
+        logging.info(
+            "Мониторинг позиции: MACD=%.2f, Signal=%.2f, Цена=%.2f, TP=%s, SL=%s, TS=%s",
+            macd[-1], macd_signal_line[-1], current_price,
+            f"{tp_price:.2f}" if tp_price else "N/A",
+            f"{sl_price:.2f}" if sl_price else "N/A",
+            f"{ts_price:.2f}" if ts_price else "N/A"
+        )
+
+        if self.position_open:
+            if current_price >= tp_price:
+                logging.info("Take Profit достигнут. Закрытие позиции.")
+                await self.market_order("Sell")
                 self._reset_state()
-        elif self.position_open and macd[-1] < macd_signal_line[-1]:
-            logging.info("MACD пересёк сигнальную линию сверху вниз. "
-                         "Ожидаем дальнейшего подтверждения для закрытия позиции.")
+                return
+
+            if current_price <= sl_price:
+                logging.info("Stop Loss достигнут. Закрытие позиции.")
+                await self.market_order("Sell")
+                self._reset_state()
+                return
+
+            if current_price > ts_price:
+                new_ts_price = max(ts_price,
+                                   current_price * (1 - RISK_MANAGEMENT_SETTINGS["TRAILING_STOP_PERCENTAGE"] / 100))
+                self.state["ts_price"] = new_ts_price
+                logging.info("Trailing Stop обновлён до %.2f", new_ts_price)
+                await save_state(self.state)
+
+            if current_price <= ts_price:
+                logging.info("Trailing Stop достигнут. Закрытие позиции.")
+                await self.market_order("Sell")
+                self._reset_state()
+                return
+
+        logging.info("Анализ MACD завершён.")

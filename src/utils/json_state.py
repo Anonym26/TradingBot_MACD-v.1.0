@@ -7,13 +7,14 @@ import json
 import logging
 import os
 import shutil
+import aiofiles
 
 STATE_FILE = "state.json"
 BACKUP_FILE = "state_backup.json"
 
-def load_state():
+async def load_state():
     """
-    Загружает состояние бота из JSON-файла.
+    Асинхронно загружает состояние бота из JSON-файла.
 
     Если файл состояния существует, он будет прочитан и данные будут возвращены.
     Если файл не найден, возвращается состояние по умолчанию.
@@ -24,22 +25,43 @@ def load_state():
             "symbol": str,           # Торговая пара (например, "BTCUSDT")
             "side": str,             # Сторона сделки ("Buy" или "Sell")
             "quantity": float,       # Количество актива
-            "entry_price": float     # Цена открытия позиции
+            "entry_price": float,    # Цена открытия позиции
+            "tp_price": float,       # Уровень тейк-профита
+            "sl_price": float,       # Уровень стоп-лосса
+            "ts_price": float        # Уровень трейлинг-стопа
         }
     """
     if os.path.exists(STATE_FILE):
-        with open(STATE_FILE, "r") as file:
+        async with aiofiles.open(STATE_FILE, mode="r", encoding="utf-8") as file:
             try:
-                return json.load(file)
+                data = await file.read()
+                return json.loads(data)
             except json.JSONDecodeError as error:
-                # Если файл повреждён, возвращаем состояние по умолчанию
                 logging.warning("Ошибка при чтении файла состояния: %s", error)
-                return {"position_open": False, "symbol": None, "side": None, "quantity": 0.0, "entry_price": 0.0}
-    return {"position_open": False, "symbol": None, "side": None, "quantity": 0.0, "entry_price": 0.0}
+                return {
+                    "position_open": False,
+                    "symbol": None,
+                    "side": None,
+                    "quantity": 0.0,
+                    "entry_price": 0.0,
+                    "tp_price": 0.0,
+                    "sl_price": 0.0,
+                    "ts_price": 0.0
+                }
+    return {
+        "position_open": False,
+        "symbol": None,
+        "side": None,
+        "quantity": 0.0,
+        "entry_price": 0.0,
+        "tp_price": 0.0,
+        "sl_price": 0.0,
+        "ts_price": 0.0
+    }
 
-def save_state(state):
+async def save_state(state):
     """
-    Сохраняет текущее состояние бота в JSON-файл.
+    Асинхронно сохраняет текущее состояние бота в JSON-файл.
 
     Перед записью создается резервная копия текущего состояния, если файл существует.
 
@@ -49,7 +71,10 @@ def save_state(state):
             "symbol": str,           # Торговая пара (например, "BTCUSDT")
             "side": str,             # Сторона сделки ("Buy" или "Sell")
             "quantity": float,       # Количество актива
-            "entry_price": float     # Цена открытия позиции
+            "entry_price": float,    # Цена открытия позиции
+            "tp_price": float,       # Уровень тейк-профита
+            "sl_price": float,       # Уровень стоп-лосса
+            "ts_price": float        # Уровень трейлинг-стопа
         }
     """
     if os.path.exists(STATE_FILE):
@@ -59,9 +84,9 @@ def save_state(state):
         except IOError as error:
             logging.error("Ошибка при создании резервной копии: %s", error, exc_info=True)
 
-    try:
-        with open(STATE_FILE, "w") as file:
-            json.dump(state, file, indent=4)
+    async with aiofiles.open(STATE_FILE, mode="w", encoding="utf-8") as file:
+        try:
+            await file.write(json.dumps(state, indent=4))
             logging.info("Состояние успешно сохранено в '%s'", STATE_FILE)
-    except IOError as error:
-        logging.error("Ошибка при сохранении состояния: %s", error, exc_info=True)
+        except IOError as error:
+            logging.error("Ошибка при сохранении состояния: %s", error, exc_info=True)

@@ -112,12 +112,7 @@ class MACDStrategy:
 
         :param close_prices: Список цен закрытия.
         """
-        macd, macd_signal_line = calculate_macd(
-            close_prices,
-            MACD_SETTINGS["FAST"],
-            MACD_SETTINGS["SLOW"],
-            MACD_SETTINGS["SIGNAL"]
-        )
+        macd, macd_signal_line = calculate_macd(close_prices)
         logging.info("MACD: %.2f, Signal: %.2f", macd[-1], macd_signal_line[-1])
 
         if self.should_buy(macd[-1], macd_signal_line[-1]):

@@ -5,15 +5,15 @@
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 
 from src.handlers.bybit_handler import ByBitHandler
 from src.settings import STRATEGY_SETTINGS, ANALYSIS_SETTINGS
+from src.utils.json_state import load_state, save_state
 from src.utils.logging_config import setup_logger
 from src.utils.orders import MACDStrategy
-from src.utils.json_state import load_state, save_state
 
 # Загрузка переменных окружения
 load_dotenv()
@@ -27,13 +27,13 @@ bybit_handler = ByBitHandler()
 
 async def calculate_sleep_time(interval_minutes):
     """
-    Вычисление времени до закрытия текущей свечи.
+    Вычисление времени до закрытия текущей свечи с синхронизацией с временной зоной биржи.
 
     :param interval_minutes: Таймфрейм свечи в минутах.
     :return: Время ожидания до закрытия текущей свечи в секундах.
     """
     server_time_response = bybit_handler.session.get_server_time()  # Синхронный вызов
-    server_time = datetime.utcfromtimestamp(server_time_response["time"] / 1000)  # Время сервера в UTC
+    server_time = datetime.utcfromtimestamp(server_time_response["time"] / 1000).replace(tzinfo=timezone.utc)
 
     next_candle_minute = (server_time.minute // interval_minutes + 1) * interval_minutes
     if next_candle_minute >= 60:
@@ -85,7 +85,9 @@ async def run():
             )
             klines = resource.get("result", {}).get("list", [])
             klines = sorted(klines, key=lambda x: int(x[0]))
-            close_price = [float(candle[4]) for candle in klines]
+
+            # Обрабатываем последнюю закрытую свечу
+            close_price = [float(candle[4]) for candle in klines[:-1]]  # Исключаем текущую свечу
             await strategy.process_macd(close_prices=close_price)
 
         while True:
@@ -112,10 +114,10 @@ async def run():
                 save_state(strategy.state)
 
             except Exception as error:
-                logging.error("Ошибка в основном цикле: %s", error)
+                logging.error("Ошибка в основном цикле: %s", error, exc_info=True)
 
     except Exception as error:
-        logging.error("Ошибка при запуске бота: %s", error)
+        logging.error("Ошибка при запуске бота: %s", error, exc_info=True)
 
 
 if __name__ == "__main__":

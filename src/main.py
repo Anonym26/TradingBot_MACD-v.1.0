@@ -86,7 +86,7 @@ async def run():
             klines = resource.get("result", {}).get("list", [])
             klines = sorted(klines, key=lambda x: int(x[0]))
 
-            # Обрабатываем последнюю закрытую свечу
+            # Исключаем текущую свечу и обрабатываем последнюю закрытую свечу
             close_price = [float(candle[4]) for candle in klines[:-1]]  # Исключаем текущую свечу
             await strategy.process_macd(close_prices=close_price)
 
@@ -105,7 +105,9 @@ async def run():
                 )
                 klines = resource.get("result", {}).get("list", [])
                 klines = sorted(klines, key=lambda x: int(x[0]))
-                close_price = [float(candle[4]) for candle in klines]
+
+                # Исключаем текущую свечу для анализа
+                close_price = [float(candle[4]) for candle in klines[:-1]]  # Исключаем текущую свечу
 
                 # Обработка стратегии MACD
                 await strategy.process_macd(close_prices=close_price)

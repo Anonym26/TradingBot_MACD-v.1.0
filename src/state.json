@@ -1,7 +1,7 @@
 {
-    "position_open": true,
+    "position_open": false,
     "symbol": "BTCUSDT",
-    "side": "Buy",
-    "quantity": 0.00105803,
+    "side": null,
+    "quantity": 0.0,
     "entry_price": 0.0
 }

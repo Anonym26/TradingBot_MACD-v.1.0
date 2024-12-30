@@ -1,9 +1,3 @@
-"""
-Этот модуль содержит класс для работы с API ByBit. Предоставляет функционал
-для размещения рыночных ордеров, получения информации об активах,
-балансе и параметрах точности торговых пар.
-"""
-
 import logging
 import os
 from decimal import Decimal, ROUND_DOWN
@@ -102,15 +96,15 @@ class ByBitHandler:
             balance = await self.get_asset_balance(base_asset)
             _, min_order_qty, _ = await self.get_precision(symbol)
 
-            if balance > min_order_qty:
+            if balance >= min_order_qty:
                 logging.info("Обнаружена открытая позиция для %s: %.8f", base_asset, balance)
                 return {
                     "position_open": True,
                     "quantity": balance,
-                    "side": "Buy"  # Учитываем, что наличие актива указывает на покупку
+                    "side": "Buy"  # Наличие актива указывает на покупку
                 }
 
-            logging.info("Нет открытой позиции для %s.", base_asset)
+            logging.info("Нет открытой позиции для %s (баланс меньше минимального).", base_asset)
             return {"position_open": False}
         except Exception as exc:
             logging.error("Ошибка при проверке открытой позиции: %s", exc)
@@ -127,14 +121,25 @@ class ByBitHandler:
         try:
             base_precision, min_order_qty, min_order_amt = await self.get_precision(symbol)
 
-            # Расчет количества для ордера
-            qty = Decimal(self.deposit_settings["DEPOSIT"])
-            if side == "Sell":
+            if side == "Buy":
+                # Рассчитываем количество для покупки
+                usdt_balance = Decimal(await self.get_asset_balance("USDT"))
+                qty = usdt_balance if self.deposit_settings["USE_TOTAL_BALANCE"] else Decimal(self.deposit_settings["DEPOSIT"])
+                if qty > usdt_balance:
+                    qty = usdt_balance
+                qty /= Decimal(await self.get_asset_price(symbol))
+
+            elif side == "Sell":
+                # Получаем количество актива для продажи
                 qty = Decimal(await self.get_asset_balance(symbol.split("USDT")[0]))
 
-            if qty < min_order_amt:
+            else:
+                raise ValueError(f"Некорректная сторона сделки: {side}")
+
+            if qty < (min_order_qty if side == "Sell" else min_order_amt):
                 logging.warning(
-                    "Недостаточно средств для размещения ордера. Требуется: %.8f", min_order_amt
+                    "Количество для сделки (%.8f) меньше минимально допустимого %.8f.",
+                    qty, min_order_qty if side == "Sell" else min_order_amt
                 )
                 return None
 
@@ -152,6 +157,7 @@ class ByBitHandler:
                 logging.error("Ошибка размещения ордера: %s", response["retMsg"])
                 return None
 
+            logging.info("Ордер успешно размещён: %s", response)
             return response.get("result", {})
         except Exception as exc:
             logging.error("Ошибка при размещении ордера: %s", exc)

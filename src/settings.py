@@ -14,7 +14,7 @@ MACD_SETTINGS = {
 # Настройки депозита
 DEPOSIT_SETTINGS = {
     "USE_TOTAL_BALANCE": False,  # True - использовать весь баланс USDT, False - фиксированный депозит
-    "DEPOSIT": 100  # Фиксированный депозит в USDT (используется, если USE_TOTAL_BALANCE=False)
+    "DEPOSIT": 1000  # Фиксированный депозит в USDT (используется, если USE_TOTAL_BALANCE=False)
 }
 
 # Проверка на конфликт настроек депозита

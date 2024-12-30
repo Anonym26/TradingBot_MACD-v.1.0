@@ -128,6 +128,10 @@ class MACDStrategy:
                     "quantity": result.get("quantity", 0.0),
                     "entry_price": result.get("entry_price", 0.0)
                 })
+        elif not self.position_open and macd[-1] > macd_signal_line[-1]:
+            logging.info("MACD выше сигнальной линии. Ждем пересечения сверху вниз для следующего сигнала.")
+        elif not self.position_open and macd[-1] <= macd_signal_line[-1]:
+            logging.info("MACD ниже сигнальной линии. Ждем пересечения снизу вверх.")
 
         if self.should_sell(macd[-1], macd_signal_line[-1]):
             logging.info("MACD пересёк сигнальную линию сверху вниз. Закрываем позицию.")
@@ -135,3 +139,6 @@ class MACDStrategy:
             if result is not None:
                 logging.info("Позиция успешно закрыта.")
                 self._reset_state()
+        elif self.position_open and macd[-1] < macd_signal_line[-1]:
+            logging.info("MACD пересёк сигнальную линию сверху вниз. "
+                         "Ожидаем дальнейшего подтверждения для закрытия позиции.")

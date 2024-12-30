@@ -17,6 +17,10 @@ DEPOSIT_SETTINGS = {
     "DEPOSIT": 100  # Фиксированный депозит в USDT (используется, если USE_TOTAL_BALANCE=False)
 }
 
+# Проверка на конфликт настроек депозита
+if not DEPOSIT_SETTINGS["USE_TOTAL_BALANCE"] and DEPOSIT_SETTINGS["DEPOSIT"] <= 0:
+    raise ValueError("Значение 'DEPOSIT' должно быть больше 0, если 'USE_TOTAL_BALANCE' отключен.")
+
 # Настройки стратегии
 STRATEGY_SETTINGS = {
     "TRADE_SYMBOL": "BTCUSDT",  # Торговая пара

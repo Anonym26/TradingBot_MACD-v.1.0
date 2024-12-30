@@ -39,14 +39,12 @@ class ByBitHandler:
         try:
             response = self.session.get_instruments_info(category="spot", symbol=symbol)
             if response["retCode"] != 0:
-                raise ValueError(
-                    "Ошибка получения данных инструмента %s: %s", symbol, response['retMsg']
-                )
+                raise ValueError(f"Ошибка получения данных инструмента {symbol}: {response['retMsg']}")
 
             asset_info = response["result"]["list"][0]
-            base_precision = Decimal(
-                f"1e-{len(str(asset_info['lotSizeFilter']['basePrecision']).split('.')[-1])}"
-            )
+            # Используем Decimal для преобразования basePrecision
+            base_precision = Decimal(asset_info["lotSizeFilter"]["basePrecision"])
+            base_precision = Decimal(f"1e-{base_precision.as_tuple().exponent * -1}")
             min_order_qty = Decimal(asset_info["lotSizeFilter"]["minOrderQty"])
             min_order_amt = Decimal(asset_info["lotSizeFilter"]["minOrderAmt"])
 
@@ -56,7 +54,7 @@ class ByBitHandler:
             )
             return base_precision, min_order_qty, min_order_amt
         except (KeyError, ValueError, InvalidOperation) as error:
-            logging.error("Ошибка получения точности инструмента %s: %s", symbol, error)
+            logging.error("Ошибка получения точности инструмента %s: %s", symbol, error, exc_info=True)
             raise
 
     async def get_asset_balance(self, asset):
@@ -69,7 +67,7 @@ class ByBitHandler:
         try:
             response = self.session.get_wallet_balance(accountType="UNIFIED")
             if response["retCode"] != 0:
-                raise ValueError("Ошибка получения баланса: %s", response['retMsg'])
+                raise ValueError(f"Ошибка получения баланса: {response['retMsg']}")
 
             coins = response["result"]["list"][0]["coin"]
             for coin in coins:
@@ -81,13 +79,13 @@ class ByBitHandler:
                         logging.info("Баланс %s: %.8f", asset, balance)
                         return balance
                     except InvalidOperation:
-                        logging.error("Ошибка преобразования баланса %s. Raw: %s", asset, coin["walletBalance"])
+                        logging.error("Ошибка преобразования баланса %s. Raw: %s", asset, coin["walletBalance"], exc_info=True)
                         return Decimal("0.0")
 
             logging.warning("Актив %s не найден в портфеле.", asset)
             return Decimal("0.0")
         except ValueError as error:
-            logging.error("Ошибка получения баланса %s: %s", asset, error)
+            logging.error("Ошибка получения баланса %s: %s", asset, error, exc_info=True)
             raise
 
     async def get_asset_price(self, symbol):
@@ -100,13 +98,13 @@ class ByBitHandler:
         try:
             response = self.session.get_tickers(category="spot", symbol=symbol)
             if response["retCode"] != 0:
-                raise ValueError("Ошибка получения цены %s: %s", symbol, response['retMsg'])
+                raise ValueError(f"Ошибка получения цены {symbol}: {response['retMsg']}")
 
             price = Decimal(response["result"]["list"][0]["lastPrice"])
             logging.info("Текущая цена %s: %.2f", symbol, price)
             return price
         except ValueError as error:
-            logging.error("Ошибка получения цены %s: %s", symbol, error)
+            logging.error("Ошибка получения цены %s: %s", symbol, error, exc_info=True)
             raise
 
     async def place_market_order(self, symbol, side):
@@ -163,5 +161,5 @@ class ByBitHandler:
             logging.info("Ордер успешно размещён: %s", response)
             return response.get("result", {})
         except (ValueError, InvalidOperation) as error:
-            logging.error("Ошибка размещения ордера: %s", error)
+            logging.error("Ошибка размещения ордера: %s", error, exc_info=True)
             return None

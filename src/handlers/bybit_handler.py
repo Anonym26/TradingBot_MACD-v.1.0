@@ -1,6 +1,11 @@
+"""
+Модуль для работы с API ByBit: покупка и продажа активов, проверка баланса,
+определение параметров точности и минимальных размеров ордеров.
+"""
+
 import logging
 import os
-from decimal import Decimal, ROUND_DOWN
+from decimal import Decimal, ROUND_DOWN, InvalidOperation
 from pybit.unified_trading import HTTP
 from dotenv import load_dotenv
 from src.settings import DEPOSIT_SETTINGS
@@ -9,6 +14,7 @@ from src.settings import DEPOSIT_SETTINGS
 load_dotenv()
 BYBIT_API_KEY_TEST = os.getenv("BYBIT_API_KEY_TEST")
 BYBIT_API_SECRET_TEST = os.getenv("BYBIT_API_SECRET_TEST")
+
 
 class ByBitHandler:
     """
@@ -31,32 +37,26 @@ class ByBitHandler:
         :return: base_precision, min_order_qty, min_order_amt.
         """
         try:
-            response = self.session.get_instruments_info(
-                category="spot",
-                symbol=symbol
-            )
+            response = self.session.get_instruments_info(category="spot", symbol=symbol)
             if response["retCode"] != 0:
                 raise ValueError(
-                    f"Ошибка получения информации об инструменте {symbol}: {response['retMsg']}"
+                    "Ошибка получения данных инструмента %s: %s", symbol, response['retMsg']
                 )
 
             asset_info = response["result"]["list"][0]
             base_precision = Decimal(
-                f"1e-{str(asset_info['lotSizeFilter']['basePrecision']).rsplit('.', maxsplit=1)[-1]}"
+                f"1e-{len(str(asset_info['lotSizeFilter']['basePrecision']).split('.')[-1])}"
             )
             min_order_qty = Decimal(asset_info["lotSizeFilter"]["minOrderQty"])
             min_order_amt = Decimal(asset_info["lotSizeFilter"]["minOrderAmt"])
 
+            logging.info(
+                "Точность инструмента %s: base_precision=%s, min_order_qty=%s, min_order_amt=%s",
+                symbol, base_precision, min_order_qty, min_order_amt
+            )
             return base_precision, min_order_qty, min_order_amt
-        except KeyError as key_error:
-            logging.error(
-                "Ошибка при извлечении данных точности для символа %s: %s", symbol, key_error
-            )
-            raise
-        except ValueError as value_error:
-            logging.error(
-                "Ошибка при обработке данных инструмента %s: %s", symbol, value_error
-            )
+        except (KeyError, ValueError, InvalidOperation) as error:
+            logging.error("Ошибка получения точности инструмента %s: %s", symbol, error)
             raise
 
     async def get_asset_balance(self, asset):
@@ -69,46 +69,45 @@ class ByBitHandler:
         try:
             response = self.session.get_wallet_balance(accountType="UNIFIED")
             if response["retCode"] != 0:
-                raise ValueError(f"Ошибка получения баланса: {response['retMsg']}")
+                raise ValueError("Ошибка получения баланса: %s", response['retMsg'])
 
             coins = response["result"]["list"][0]["coin"]
             for coin in coins:
                 if coin["coin"] == asset:
-                    balance = float(coin["walletBalance"])
-                    logging.info("Баланс %s: %.8f", asset, balance)
-                    return balance
+                    try:
+                        balance = Decimal(coin["walletBalance"]).quantize(
+                            Decimal("1e-8"), rounding=ROUND_DOWN
+                        )
+                        logging.info("Баланс %s: %.8f", asset, balance)
+                        return balance
+                    except InvalidOperation:
+                        logging.error("Ошибка преобразования баланса %s. Raw: %s", asset, coin["walletBalance"])
+                        return Decimal("0.0")
 
-            logging.warning("Актива %s нет в портфеле.", asset)
-            return 0.0
-        except ValueError as value_error:
-            logging.error("Ошибка при получении баланса %s: %s", asset, value_error)
+            logging.warning("Актив %s не найден в портфеле.", asset)
+            return Decimal("0.0")
+        except ValueError as error:
+            logging.error("Ошибка получения баланса %s: %s", asset, error)
             raise
 
-    async def check_open_position(self, symbol):
+    async def get_asset_price(self, symbol):
         """
-        Проверка открытой позиции по наличию баланса актива, превышающего минимальный размер ордера.
+        Получение текущей цены актива.
 
         :param symbol: Торговая пара (например, BTCUSDT).
-        :return: Словарь с информацией о позиции.
+        :return: Текущая цена актива.
         """
         try:
-            base_asset = symbol.split("USDT")[0]
-            balance = await self.get_asset_balance(base_asset)
-            _, min_order_qty, _ = await self.get_precision(symbol)
+            response = self.session.get_tickers(category="spot", symbol=symbol)
+            if response["retCode"] != 0:
+                raise ValueError("Ошибка получения цены %s: %s", symbol, response['retMsg'])
 
-            if balance >= min_order_qty:
-                logging.info("Обнаружена открытая позиция для %s: %.8f", base_asset, balance)
-                return {
-                    "position_open": True,
-                    "quantity": balance,
-                    "side": "Buy"  # Наличие актива указывает на покупку
-                }
-
-            logging.info("Нет открытой позиции для %s (баланс меньше минимального).", base_asset)
-            return {"position_open": False}
-        except Exception as exc:
-            logging.error("Ошибка при проверке открытой позиции: %s", exc)
-            return {"position_open": False}
+            price = Decimal(response["result"]["list"][0]["lastPrice"])
+            logging.info("Текущая цена %s: %.2f", symbol, price)
+            return price
+        except ValueError as error:
+            logging.error("Ошибка получения цены %s: %s", symbol, error)
+            raise
 
     async def place_market_order(self, symbol, side):
         """
@@ -116,34 +115,38 @@ class ByBitHandler:
 
         :param symbol: Торговая пара (например, BTCUSDT).
         :param side: Сторона сделки ("Buy" или "Sell").
-        :return: Ответ API или None при ошибке.
+        :return: Результат API или None при ошибке.
         """
         try:
             base_precision, min_order_qty, min_order_amt = await self.get_precision(symbol)
 
             if side == "Buy":
-                # Рассчитываем количество для покупки
-                usdt_balance = Decimal(await self.get_asset_balance("USDT"))
-                qty = usdt_balance if self.deposit_settings["USE_TOTAL_BALANCE"] else Decimal(self.deposit_settings["DEPOSIT"])
-                if qty > usdt_balance:
-                    qty = usdt_balance
-                qty /= Decimal(await self.get_asset_price(symbol))
+                usdt_balance = await self.get_asset_balance("USDT")
+                qty = (
+                    usdt_balance
+                    if self.deposit_settings["USE_TOTAL_BALANCE"]
+                    else Decimal(self.deposit_settings["DEPOSIT"])
+                )
+                qty = min(qty, usdt_balance) / await self.get_asset_price(symbol)
 
             elif side == "Sell":
-                # Получаем количество актива для продажи
-                qty = Decimal(await self.get_asset_balance(symbol.split("USDT")[0]))
+                qty = await self.get_asset_balance(symbol.split("USDT")[0])
 
             else:
-                raise ValueError(f"Некорректная сторона сделки: {side}")
+                raise ValueError("Некорректная сторона сделки: %s", side)
 
             if qty < (min_order_qty if side == "Sell" else min_order_amt):
                 logging.warning(
-                    "Количество для сделки (%.8f) меньше минимально допустимого %.8f.",
+                    "Количество для сделки (%.8f) меньше минимального (%.8f).",
                     qty, min_order_qty if side == "Sell" else min_order_amt
                 )
                 return None
 
             qty = qty.quantize(base_precision, rounding=ROUND_DOWN)
+
+            if qty <= Decimal("0.0"):
+                logging.error("Количество для ордера равно 0. Сделка не будет выполнена.")
+                return None
 
             response = self.session.place_order(
                 category="spot",
@@ -154,11 +157,11 @@ class ByBitHandler:
                 timeInForce="GTC",
             )
             if response["retCode"] != 0:
-                logging.error("Ошибка размещения ордера: %s", response["retMsg"])
+                logging.error("Ошибка размещения ордера: %s", response['retMsg'])
                 return None
 
             logging.info("Ордер успешно размещён: %s", response)
             return response.get("result", {})
-        except Exception as exc:
-            logging.error("Ошибка при размещении ордера: %s", exc)
+        except (ValueError, InvalidOperation) as error:
+            logging.error("Ошибка размещения ордера: %s", error)
             return None

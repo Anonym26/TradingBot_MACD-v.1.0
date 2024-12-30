@@ -6,7 +6,6 @@
 
 import logging
 from decimal import Decimal
-
 from src.settings import DEPOSIT_SETTINGS, MACD_SETTINGS
 from src.utils.calculations import calculate_macd
 
@@ -14,7 +13,6 @@ from src.utils.calculations import calculate_macd
 SIGNAL_WAIT_DOWNWARD_CROSS = "Wait for downward cross"
 SIGNAL_WAIT_UPWARD_CROSS = "Wait for upward cross"
 SIGNAL_POSITION_OPEN = "Position open"
-
 
 class MACDStrategy:
     """
@@ -46,7 +44,7 @@ class MACDStrategy:
         try:
             asset = self.symbol.split("USDT")[0]
             balance = await self.handler.get_asset_balance(asset)
-            base_precision, min_order_qty, _ = await self.handler.get_precision(self.symbol)
+            _, min_order_qty, _ = await self.handler.get_precision(self.symbol)
 
             if Decimal(balance) >= min_order_qty:
                 self.position_open = True
@@ -54,27 +52,27 @@ class MACDStrategy:
                     "position_open": True,
                     "side": "Buy",
                     "quantity": float(balance),
-                    "entry_price": self.state.get("entry_price", 0.0)  # Используем сохранённое значение
+                    "entry_price": self.state.get("entry_price", 0.0)
                 })
                 logging.info("Обнаружена открытая позиция на бирже. Состояние обновлено: %s", self.state)
             else:
-                self.position_open = False
-                self.state.update({
-                    "position_open": False,
-                    "side": None,
-                    "quantity": 0.0,
-                    "entry_price": 0.0
-                })
+                self._reset_state()
                 logging.info("Открытых позиций на бирже нет. Состояние сброшено.")
         except Exception as error:
-            logging.error("Ошибка при синхронизации позиции с биржей: %s", error)
-            self.position_open = False
-            self.state.update({
-                "position_open": False,
-                "side": None,
-                "quantity": 0.0,
-                "entry_price": 0.0
-            })
+            logging.error("Ошибка при синхронизации позиции с биржей: %s", error, exc_info=True)
+            self._reset_state()
+
+    def _reset_state(self):
+        """
+        Сбрасывает состояние позиции в начальное состояние.
+        """
+        self.position_open = False
+        self.state.update({
+            "position_open": False,
+            "side": None,
+            "quantity": 0.0,
+            "entry_price": 0.0
+        })
 
     async def market_order(self, side):
         """
@@ -87,6 +85,26 @@ class MACDStrategy:
             symbol=self.symbol,
             side=side
         )
+
+    def should_buy(self, macd, macd_signal_line):
+        """
+        Определяет, следует ли открывать позицию на покупку.
+
+        :param macd: Значение MACD.
+        :param macd_signal_line: Значение сигнальной линии MACD.
+        :return: True, если следует покупать, иначе False.
+        """
+        return self.last_signal == SIGNAL_WAIT_UPWARD_CROSS and macd > macd_signal_line
+
+    def should_sell(self, macd, macd_signal_line):
+        """
+        Определяет, следует ли закрывать позицию на продажу.
+
+        :param macd: Значение MACD.
+        :param macd_signal_line: Значение сигнальной линии MACD.
+        :return: True, если следует продавать, иначе False.
+        """
+        return self.position_open and macd < macd_signal_line
 
     async def process_macd(self, close_prices):
         """
@@ -102,40 +120,23 @@ class MACDStrategy:
         )
         logging.info("MACD: %.2f, Signal: %.2f", macd[-1], macd_signal_line[-1])
 
-        if not self.position_open:
-            if self.last_signal is None:
-                if macd[-1] > macd_signal_line[-1]:
-                    logging.info("MACD выше сигнальной линии. Ждем пересечения сверху вниз.")
-                    self.last_signal = SIGNAL_WAIT_DOWNWARD_CROSS
-                elif macd[-1] <= macd_signal_line[-1]:
-                    logging.info("MACD ниже сигнальной линии. Готов к покупке и жду сигнала.")
-                    self.last_signal = SIGNAL_WAIT_UPWARD_CROSS
+        if self.should_buy(macd[-1], macd_signal_line[-1]):
+            logging.info("Пересечение снизу вверх. Открываем покупку.")
+            result = await self.market_order("Buy")
+            if result is not None:
+                logging.info("Позиция открыта.")
+                self.position_open = True
+                self.last_signal = SIGNAL_POSITION_OPEN
+                self.state.update({
+                    "position_open": True,
+                    "side": "Buy",
+                    "quantity": result.get("quantity", 0.0),
+                    "entry_price": result.get("entry_price", 0.0)
+                })
 
-            elif self.last_signal == SIGNAL_WAIT_UPWARD_CROSS and macd[-1] > macd_signal_line[-1]:
-                logging.info("Пересечение снизу вверх. Открываем покупку.")
-                result = await self.market_order("Buy")
-                if result is not None:
-                    logging.info("Позиция открыта.")
-                    self.position_open = True
-                    self.last_signal = SIGNAL_POSITION_OPEN
-                    self.state.update({
-                        "position_open": True,
-                        "side": "Buy",
-                        "quantity": result.get("quantity", 0.0),
-                        "entry_price": result.get("entry_price", 0.0)
-                    })
-
-        if self.position_open:
-            if macd[-1] < macd_signal_line[-1]:
-                logging.info("MACD пересёк сигнальную линию сверху вниз. Закрываем позицию.")
-                result = await self.market_order("Sell")
-                if result is not None:
-                    logging.info("Позиция успешно закрыта.")
-                    self.position_open = False
-                    self.last_signal = SIGNAL_WAIT_UPWARD_CROSS
-                    self.state.update({
-                        "position_open": False,
-                        "side": None,
-                        "quantity": 0.0,
-                        "entry_price": 0.0
-                    })
+        if self.should_sell(macd[-1], macd_signal_line[-1]):
+            logging.info("MACD пересёк сигнальную линию сверху вниз. Закрываем позицию.")
+            result = await self.market_order("Sell")
+            if result is not None:
+                logging.info("Позиция успешно закрыта.")
+                self._reset_state()

@@ -73,9 +73,9 @@ class MACDStrategy:
             "side": None,
             "quantity": 0.0,
             "entry_price": 0.0,
-            "tp_price": 0.0,
-            "sl_price": 0.0,
-            "ts_price": 0.0
+            "tp_price": None,
+            "sl_price": None,
+            "ts_price": None
         })
 
     async def market_order(self, side):
@@ -85,10 +85,17 @@ class MACDStrategy:
         :param side: Сторона сделки ("Buy" или "Sell").
         :return: Ответ API или None при ошибке.
         """
-        return await self.handler.place_market_order(
-            symbol=self.symbol,
-            side=side
-        )
+        response = await self.handler.place_market_order(symbol=self.symbol, side=side)
+        if response and side == "Buy":
+            self.position_open = True
+            self.state.update({
+                "position_open": True,
+                "entry_price": response.get("entry_price", 0.0),
+                "quantity": response.get("quantity", 0.0),
+            })
+        elif side == "Sell":
+            self._reset_state()
+        return response
 
     def should_buy(self, macd, macd_signal_line):
         """
@@ -128,8 +135,10 @@ class MACDStrategy:
             if result is not None:
                 logging.info("Позиция открыта.")
                 entry_price = result.get("entry_price", current_price)
-                tp_price = entry_price * (1 + RISK_MANAGEMENT_SETTINGS["TP_PERCENTAGE"] / 100)
-                sl_price = entry_price * (1 - RISK_MANAGEMENT_SETTINGS["SL_PERCENTAGE"] / 100)
+                tp_price = (entry_price * (1 + RISK_MANAGEMENT_SETTINGS["TP_PERCENTAGE"] / 100)
+                            if RISK_MANAGEMENT_SETTINGS["TP_PERCENTAGE"] is not None else None)
+                sl_price = (entry_price * (1 - RISK_MANAGEMENT_SETTINGS["SL_PERCENTAGE"] / 100)
+                            if RISK_MANAGEMENT_SETTINGS["SL_PERCENTAGE"] is not None else None)
                 ts_price = sl_price
 
                 self.position_open = True
@@ -145,8 +154,11 @@ class MACDStrategy:
                 })
                 await save_state(self.state)
                 logging.info(
-                    "Позиция открыта: Цена входа %.2f, TP: %.2f, SL: %.2f, TS: %.2f",
-                    entry_price, tp_price, sl_price, ts_price
+                    "Позиция открыта: Цена входа %.2f, TP: %s, SL: %s, TS: %s",
+                    entry_price,
+                    f"{tp_price:.2f}" if tp_price is not None else "N/A",
+                    f"{sl_price:.2f}" if sl_price is not None else "N/A",
+                    f"{ts_price:.2f}" if ts_price is not None else "N/A"
                 )
 
         if self.position_open:
@@ -161,32 +173,33 @@ class MACDStrategy:
         logging.info(
             "Мониторинг позиции: MACD=%.2f, Signal=%.2f, Цена=%.2f, TP=%s, SL=%s, TS=%s",
             macd[-1], macd_signal_line[-1], current_price,
-            f"{tp_price:.2f}" if tp_price else "N/A",
-            f"{sl_price:.2f}" if sl_price else "N/A",
-            f"{ts_price:.2f}" if ts_price else "N/A"
+            f"{tp_price:.2f}" if tp_price is not None else "N/A",
+            f"{sl_price:.2f}" if sl_price is not None else "N/A",
+            f"{ts_price:.2f}" if ts_price is not None else "N/A"
         )
 
         if self.position_open:
-            if current_price >= tp_price:
+            if tp_price is not None and current_price >= tp_price:
                 logging.info("Take Profit достигнут. Закрытие позиции.")
                 await self.market_order("Sell")
                 self._reset_state()
                 return
 
-            if current_price <= sl_price:
+            if sl_price is not None and current_price <= sl_price:
                 logging.info("Stop Loss достигнут. Закрытие позиции.")
                 await self.market_order("Sell")
                 self._reset_state()
                 return
 
-            if current_price > ts_price:
+            if ts_price is not None and current_price > ts_price:
                 new_ts_price = max(ts_price,
-                                   current_price * (1 - RISK_MANAGEMENT_SETTINGS["TRAILING_STOP_PERCENTAGE"] / 100))
+                                   current_price * (1 - RISK_MANAGEMENT_SETTINGS["TRAILING_STOP_PERCENTAGE"] / 100)
+                                   if RISK_MANAGEMENT_SETTINGS["TRAILING_STOP_PERCENTAGE"] is not None else ts_price)
                 self.state["ts_price"] = new_ts_price
                 logging.info("Trailing Stop обновлён до %.2f", new_ts_price)
                 await save_state(self.state)
 
-            if current_price <= ts_price:
+            if ts_price is not None and current_price <= ts_price:
                 logging.info("Trailing Stop достигнут. Закрытие позиции.")
                 await self.market_order("Sell")
                 self._reset_state()

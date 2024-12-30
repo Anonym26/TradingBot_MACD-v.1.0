@@ -3,5 +3,8 @@
     "symbol": "BTCUSDT",
     "side": null,
     "quantity": 0.0,
-    "entry_price": 0.0
+    "entry_price": 0.0,
+    "tp_price": 0.0,
+    "sl_price": 0.0,
+    "ts_price": 0.0
 }

@@ -23,9 +23,9 @@ if not DEPOSIT_SETTINGS["USE_TOTAL_BALANCE"] and DEPOSIT_SETTINGS["DEPOSIT"] <= 
 
 # Настройки управления рисками
 RISK_MANAGEMENT_SETTINGS = {
-    "TP_PERCENTAGE": 3.0,  # Процент тейк-профита
-    "SL_PERCENTAGE": 1.5,  # Процент стоп-лосса
-    "TRAILING_STOP_PERCENTAGE": 2.0  # Процент трейлинг-стопа
+    "TP_PERCENTAGE": 3.0,  # Процент тейк-профита (в формате 1.0)
+    "SL_PERCENTAGE": 1.0,  # Процент стоп-лосса
+    "TRAILING_STOP_PERCENTAGE": None  # Процент трейлинг-стопа
 }
 
 # Настройки стратегии

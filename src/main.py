@@ -44,6 +44,10 @@ async def calculate_sleep_time(interval_minutes):
         next_candle_time = server_time.replace(minute=next_candle_minute, second=0, microsecond=0)
 
     sleep_time = (next_candle_time - server_time).total_seconds()
+    if sleep_time < 0:
+        logging.warning("Обнаружено отрицательное время до закрытия свечи. Используем минимальное ожидание.")
+        sleep_time = interval_minutes * 60
+
     hours, remainder = divmod(sleep_time, 3600)
     minutes, seconds = divmod(remainder, 60)
     logging.info(
@@ -115,9 +119,13 @@ async def run():
                 # Сохранение текущего состояния
                 await save_state(strategy.state)  # Асинхронное сохранение состояния
 
+                # Логирование после каждой итерации
+                logging.info(
+                    "Итерация завершена: Состояние=%s", strategy.state
+                )
+
             except Exception as error:
                 logging.error("Ошибка в основном цикле: %s", error, exc_info=True)
-
 
     except Exception as error:
         logging.error("Ошибка при запуске бота: %s", error, exc_info=True)

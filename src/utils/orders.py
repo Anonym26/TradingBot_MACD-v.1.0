@@ -105,7 +105,10 @@ class MACDStrategy:
         :param macd_signal_line: Значение сигнальной линии MACD.
         :return: True, если следует покупать, иначе False.
         """
-        return self.last_signal == SIGNAL_WAIT_UPWARD_CROSS and macd > macd_signal_line
+        signal = self.last_signal == SIGNAL_WAIT_UPWARD_CROSS and macd > macd_signal_line
+        logging.info("Проверка сигнала на покупку: MACD=%.2f, Signal=%.2f, Last Signal=%s, Покупка=%s",
+                     macd, macd_signal_line, self.last_signal, signal)
+        return signal
 
     def should_sell(self, macd, macd_signal_line):
         """
@@ -130,10 +133,10 @@ class MACDStrategy:
         current_price = close_prices[-1]
 
         if self.should_buy(macd[-1], macd_signal_line[-1]):
-            logging.info("MACD пересёк сигнальную линию снизу вверх. Подготовка к открытию позиции.")
+            logging.info("Сигнал на покупку подтверждён. Открытие позиции.")
             result = await self.market_order("Buy")
             if result is not None:
-                logging.info("Позиция открыта.")
+                logging.info("Позиция успешно открыта: %s", result)
                 entry_price = result.get("entry_price", current_price)
                 tp_price = (entry_price * (1 + RISK_MANAGEMENT_SETTINGS["TP_PERCENTAGE"] / 100)
                             if RISK_MANAGEMENT_SETTINGS["TP_PERCENTAGE"] is not None else None)
@@ -141,21 +144,14 @@ class MACDStrategy:
                             if RISK_MANAGEMENT_SETTINGS["SL_PERCENTAGE"] is not None else None)
                 ts_price = sl_price
 
-                self.position_open = True
-                self.last_signal = SIGNAL_POSITION_OPEN
                 self.state.update({
-                    "position_open": True,
-                    "side": "Buy",
-                    "quantity": result.get("quantity", 0.0),
-                    "entry_price": entry_price,
                     "tp_price": tp_price,
                     "sl_price": sl_price,
                     "ts_price": ts_price
                 })
                 await save_state(self.state)
                 logging.info(
-                    "Позиция открыта: Цена входа %.2f, TP: %s, SL: %s, TS: %s",
-                    entry_price,
+                    "Установлены уровни TP: %s, SL: %s, TS: %s",
                     f"{tp_price:.2f}" if tp_price is not None else "N/A",
                     f"{sl_price:.2f}" if sl_price is not None else "N/A",
                     f"{ts_price:.2f}" if ts_price is not None else "N/A"
